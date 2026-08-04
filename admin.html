@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Admin Dashboard - Images</title>
+  <style>
+    :root{
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --accent: #2e3192;
+      --accent-2: #1b2a5d;
+      --muted: #6b7280;
+      --danger: #dc2626;
+    }
+    html,body{height:100%;margin:0}
+    body { font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background: var(--bg); color: #0f1724; }
+    header.topbar{background:linear-gradient(90deg,var(--accent),var(--accent-2)); color:white; padding:18px 24px; display:flex; align-items:center; justify-content:space-between}
+    header.topbar h1{margin:0;font-size:1.1rem;letter-spacing:0.6px}
+    header.topbar .sub{opacity:0.9;font-size:0.85rem}
+    .container{max-width:1100px;margin:22px auto;padding:0 18px}
+
+    .card{background:var(--card);padding:14px;border-radius:12px;box-shadow:0 8px 24px rgba(16,24,40,0.06);margin-bottom:14px}
+    .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+    input[type=password], input[type=text]{padding:10px;border:1px solid #e6eef8;border-radius:8px;width:320px;max-width:100%;box-sizing:border-box}
+    input[type=file]{width:100%}
+
+    .btn{background:var(--accent);color:white;border:none;padding:10px 14px;border-radius:8px;cursor:pointer;font-weight:600}
+    .btn.secondary{background:transparent;border:1px solid rgba(16,24,40,0.06);color:var(--accent-2)}
+    .btn.danger{background:var(--danger)}
+    .btn.small{padding:6px 8px;font-size:0.9rem}
+
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:12px}
+    .preview{width:100%;height:160px;object-fit:cover;border-radius:8px;background:#f8fafc;border:1px solid #eef2f7}
+    label{display:block;font-weight:700;margin:10px 0 6px;color:var(--muted)}
+    .meta{display:flex;align-items:center;gap:12px;justify-content:space-between}
+    .muted{color:var(--muted);font-size:0.95rem}
+
+    .empty{padding:18px;border:2px dashed #e6eef8;border-radius:10px;text-align:center;color:var(--muted)}
+    footer.note{max-width:1100px;margin:18px auto;padding:0 18px;color:var(--muted);font-size:0.9rem}
+
+    @media (max-width:640px){header.topbar{padding:14px} .controls{flex-direction:column;align-items:stretch} input[type=password]{width:100%}}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>AMINOU EXpress — Admin</h1>
+      <div class="sub">Manage product & featured images</div>
+    </div>
+    <div class="muted">Keep this page private — secret required</div>
+  </header>
+  <div class="container">
+    <div class="card" id="loginCard">
+      <div class="controls">
+        <div style="flex:1;min-width:0">
+          <label for="secret">Admin secret</label>
+          <input id="secret" type="password" placeholder="Enter secret code">
+        </div>
+        <div>
+          <button id="unlock" class="btn">Unlock</button>
+        </div>
+      </div>
+      <p class="muted" style="margin-top:10px">This admin UI uses a secret code and saves images to the server. For public deployment, secure with HTTPS and stronger auth.</p>
+    </div>
+
+    <div id="editor" class="hidden">
+      <div class="card">
+        <div class="controls" style="justify-content:space-between;align-items:center">
+          <div style="display:flex;gap:8px;align-items:center">
+            <button id="saveServer" class="btn">Save to server</button>
+            <button id="download" class="btn secondary">Download JSON</button>
+            <button id="reset" class="btn secondary">Reset</button>
+          </div>
+          <div class="muted">Uploads stored under <code>images/uploads/</code></div>
+        </div>
+      </div>
+
+      <div id="list" class="grid"></div>
+    </div>
+  </div>
+
+  <footer class="note">Tip: After uploading images the site will show them once refreshed. Use the "Save to server" button to persist any URL edits.</footer>
+
+  <script src="drive-image-loader.js"></script>
+  <script>
+    // Keep original admin logic but hook to nicer UI
+    const secretInput = document.getElementById('secret');
+    const unlockBtn = document.getElementById('unlock');
+    const editor = document.getElementById('editor');
+    const list = document.getElementById('list');
+    const saveServerBtn = document.getElementById('saveServer');
+    const downloadBtn = document.getElementById('download');
+    const resetBtn = document.getElementById('reset');
+    let currentConfig = null;
+    let enteredSecret = '';
+
+    async function fetchConfigFromServer() {
+      const res = await fetch('/admin/config', {cache: 'no-store'});
+      if (!res.ok) throw new Error('Failed to load');
+      return res.json();
+    }
+
+    async function loadConfig() {
+      try {
+        const cfg = await fetchConfigFromServer();
+        currentConfig = cfg || {secret: '', images:{}};
+        return cfg;
+      } catch(e) {
+        currentConfig = {secret: '', images:{}};
+        return currentConfig;
+      }
+    }
+
+    function makeCard(key, value) {
+      const card = document.createElement('div'); card.className = 'card';
+      const meta = document.createElement('div'); meta.className = 'meta';
+      const title = document.createElement('div'); title.textContent = key; title.style.fontWeight='800';
+      meta.appendChild(title);
+      const small = document.createElement('div'); small.className='muted'; small.textContent = value || '';
+      meta.appendChild(small);
+
+      const img = document.createElement('img'); img.className='preview'; img.src = value || '';
+
+      const urlLabel = document.createElement('label'); urlLabel.textContent = 'Image URL (or leave blank)';
+      const urlInput = document.createElement('input'); urlInput.type='text'; urlInput.value = value || '';
+      urlInput.addEventListener('input', e => {
+        currentConfig.images[key] = e.target.value;
+        img.src = e.target.value;
+        small.textContent = e.target.value;
+      });
+
+      const fileLabel = document.createElement('label'); fileLabel.textContent = 'Upload file (saved to server)';
+      const fileInput = document.createElement('input'); fileInput.type='file'; fileInput.accept='image/*';
+      fileInput.addEventListener('change', async e => {
+        const f = e.target.files[0];
+        if (!f) return;
+        const fd = new FormData();
+        fd.append('file', f);
+        fd.append('key', key);
+        fd.append('secret', enteredSecret);
+        const up = await fetch('/admin/upload', { method: 'POST', body: fd });
+        const j = await up.json();
+        if (!up.ok) return alert('Upload failed: ' + (j && j.error || up.statusText));
+        currentConfig.images[key] = j.url;
+        img.src = j.url;
+        small.textContent = j.url;
+      });
+
+      const actions = document.createElement('div'); actions.style.marginTop = '10px'; actions.style.display='flex'; actions.style.gap='8px';
+      const delBtn = document.createElement('button'); delBtn.className='btn danger small'; delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', async () => {
+        if (!confirm('Delete this image mapping and file (if stored on server)?')) return;
+        const res = await fetch('/admin/delete', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ key, secret: enteredSecret }) });
+        const j = await res.json();
+        if (!res.ok) return alert('Delete failed: ' + (j && j.error || res.statusText));
+        delete currentConfig.images[key];
+        card.remove();
+      });
+
+      const previewBtn = document.createElement('button'); previewBtn.className='btn secondary small'; previewBtn.textContent='Preview';
+      previewBtn.addEventListener('click', () => { window.open(img.src || '#', '_blank'); });
+
+      actions.appendChild(previewBtn);
+      actions.appendChild(delBtn);
+
+      card.appendChild(meta);
+      card.appendChild(img);
+      card.appendChild(urlLabel);
+      card.appendChild(urlInput);
+      card.appendChild(fileLabel);
+      card.appendChild(fileInput);
+      card.appendChild(actions);
+      return card;
+    }
+
+    function buildEditor(cfg) {
+      list.innerHTML = '';
+      const keys = Object.keys(cfg.images || {});
+      if (keys.length === 0) {
+        const hint = document.createElement('div'); hint.className='empty'; hint.textContent = 'No image keys found. Add a new key below.'; list.appendChild(hint);
+      }
+      keys.forEach(key => list.appendChild(makeCard(key, cfg.images[key])));
+
+      // Add UI for new key
+      const addCard = document.createElement('div'); addCard.className='card';
+      const newKeyLabel = document.createElement('label'); newKeyLabel.textContent = 'New key name (e.g. featured-5)';
+      const newKeyInput = document.createElement('input'); newKeyInput.type='text';
+      const newUrlLabel = document.createElement('label'); newUrlLabel.textContent = 'Image URL (optional)';
+      const newUrlInput = document.createElement('input'); newUrlInput.type='text';
+      const newFileLabel = document.createElement('label'); newFileLabel.textContent = 'Or upload file';
+      const newFileInput = document.createElement('input'); newFileInput.type='file'; newFileInput.accept='image/*';
+      const addBtn = document.createElement('button'); addBtn.className='btn'; addBtn.textContent = 'Add key';
+
+      addBtn.addEventListener('click', async () => {
+        const k = newKeyInput.value.trim();
+        const validKey = /^[a-zA-Z0-9._-]+$/;
+        if (!k) return alert('Enter a key name');
+        if (!validKey.test(k)) return alert('Key can only contain letters, numbers, dot, underscore, or hyphen');
+        if (!currentConfig.images) currentConfig.images = {};
+        if (currentConfig.images[k] !== undefined) return alert('That key already exists. Choose a different key or edit the existing one.');
+        if (newUrlInput.value) {
+          currentConfig.images[k] = newUrlInput.value;
+          list.insertBefore(makeCard(k, newUrlInput.value), addCard);
+          newKeyInput.value = ''; newUrlInput.value = ''; newFileInput.value = '';
+        } else if (newFileInput.files[0]) {
+          const f = newFileInput.files[0];
+          const fd = new FormData(); fd.append('file', f); fd.append('key', k); fd.append('secret', enteredSecret);
+          const up = await fetch('/admin/upload', { method: 'POST', body: fd });
+          const j = await up.json();
+          if (!up.ok) return alert('Upload failed: ' + (j && j.error || up.statusText));
+          currentConfig.images[k] = j.url;
+          list.insertBefore(makeCard(k, j.url), addCard);
+          newKeyInput.value = ''; newFileInput.value = '';
+        } else {
+          currentConfig.images[k] = '';
+          list.insertBefore(makeCard(k, ''), addCard);
+          newKeyInput.value = '';
+        }
+      });
+
+      addCard.appendChild(newKeyLabel);
+      addCard.appendChild(newKeyInput);
+      addCard.appendChild(newUrlLabel);
+      addCard.appendChild(newUrlInput);
+      addCard.appendChild(newFileLabel);
+      addCard.appendChild(newFileInput);
+      addCard.appendChild(addBtn);
+      list.appendChild(addCard);
+    }
+
+    unlockBtn.addEventListener('click', async () => {
+      enteredSecret = secretInput.value.trim();
+      const cfg = await loadConfig();
+      if (!cfg) return alert('Could not load config');
+      if (enteredSecret === cfg.secret) {
+        editor.classList.remove('hidden');
+        currentConfig = cfg;
+        buildEditor(cfg);
+      } else {
+        alert('Wrong secret code');
+      }
+    });
+
+    downloadBtn.addEventListener('click', () => {
+      if (!currentConfig) return alert('No config loaded');
+      window.saveImageConfigBlob(currentConfig);
+    });
+
+    resetBtn.addEventListener('click', async () => {
+      const cfg = await loadConfig();
+      currentConfig = cfg;
+      buildEditor(cfg);
+      alert('Reset to server version');
+    });
+
+    saveServerBtn.addEventListener('click', async () => {
+      if (!confirm('Save current mappings to server (this updates images-config.json on server)?')) return;
+      const res = await fetch('/admin/update', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ secret: enteredSecret, images: currentConfig.images }) });
+      const j = await res.json();
+      if (!res.ok) return alert('Save failed: ' + (j && j.error || res.statusText));
+      alert('Saved successfully');
+    });
+
+    // initial hint
+    (async ()=>{
+      const cfg = await loadConfig();
+      if (!cfg || !cfg.images || Object.keys(cfg.images).length===0) {
+        document.getElementById('list').innerHTML = '<div class="empty">No image keys found in images-config.json. Add keys from the admin UI.</div>';
+      }
+    })();
+  </script>
+</body>
+</html>

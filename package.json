@@ -1,0 +1,13 @@
+{
+  "name": "aminou-admin-server",
+  "version": "1.0.0",
+  "description": "Small Express server to support admin image uploads for Aminou EXpress static site",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "multer": "^2.2.0"
+  }
+}
