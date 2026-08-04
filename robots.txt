@@ -1,0 +1,8 @@
+# robots.txt for Aminou EXpress
+# Disallow admin and uploads; allow search engines to index public pages
+User-agent: *
+Disallow: /admin.html
+Disallow: /images/uploads/
+
+# Sitemap - replace YOUR_SITE_URL with your deployed domain
+Sitemap: https://YOUR_SITE_URL/sitemap.xml
